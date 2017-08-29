@@ -306,7 +306,10 @@ void list(const ThreadStruct& ts,std::deque<std::tuple<std::string,off_t,long lo
 	  }
 	}
 	if (args.count_only && !args.list_only) {
-	  std::cout << filelist->size() << std::endl;
+	  if (filelist->size() > 0 || ts.resource.back() == '/') {
+	    std::cout << filelist->size() << std::endl;
+	    exit(1);
+	  }
 	}
     }
   }
