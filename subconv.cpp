@@ -1,3 +1,10 @@
+/*
+** subconv.cpp - subset and convert
+**
+**   This is the 'dsrqst' back-end subsetter/converter primarily for the CFSR
+**   and CFSv2 datasets. It will subset GRIB2 files and convert GRIB2 to netCDF
+**   and CSV output.
+*/
 #include <iostream>
 #include <fstream>
 #include <unistd.h>
@@ -470,7 +477,7 @@ void *build_file(void *ts)
 	  t->write_bytes+=buf.st_size;
 	}
 	else {
-	  if (strutils::to_lower(local_args.ofmt) == "netcdf" && !onc.open(download_directory+t->filename)) {
+	  if (strutils::to_lower(local_args.ofmt) == "netcdf" && !onc.open(download_directory+t->filename+".TMP")) {
 	    std::cerr << "Error opening " << download_directory << t->filename << " for output" << std::endl;
 	    exit(1);
 	  }
@@ -505,7 +512,7 @@ void *build_file(void *ts)
 	}
 	if (!already_exists) {
 	  if (!local_args.ststep) {
-	    ofs.open((download_directory+t->filename).c_str());
+	    ofs.open((download_directory+t->filename+".TMP").c_str());
 	    if (!ofs.is_open()) {
 		std::cerr << "Error opening " << download_directory << t->filename << " for output" << std::endl;
 		exit(1);
@@ -513,6 +520,7 @@ void *build_file(void *ts)
 	  }
 	  if (is_multi) {
 	    t->f_attach=t->filename+"<!>"+t->format;
+	  }
 	}
     }
     if (!local_args.ststep && !is_multi && (topt_mo[0] == 0 || already_exists)) {
@@ -626,7 +634,7 @@ mysystem2("/bin/ln -s "+webhome+"/"+t->webID+" "+download_directory+t->filename,
 	}
 	if (!linked_to_full_file) {
 	  if (strutils::to_lower(t->format) == "netcdf" && local_args.ofmt.empty()) {
-	    if (!onc.open(download_directory+t->filename)) {
+	    if (!onc.open(download_directory+t->filename+".TMP")) {
 		std::cerr << "Error opening " << download_directory << t->filename << " for output" << std::endl;
 		exit(1);
 	    }
@@ -659,6 +667,7 @@ mysystem2("/bin/ln -s "+webhome+"/"+t->webID+" "+download_directory+t->filename,
 	  t->timing_data.db+=elapsed_time(db_times);
 	}
 	my::map<Grid::GLatEntry> *glats=nullptr;
+	std::string nts_filename;
 	while ( (query.fetch_row(row))) {
 	  bool okay_to_continue;
 	  if (topt_mo[0] == 0) {
@@ -758,8 +767,9 @@ mysystem2("/bin/ln -s "+webhome+"/"+t->webID+" "+download_directory+t->filename,
 		if (local_args.ststep) {
 		  if (row[2] != last_valid_date && ofs.is_open()) {
 		    ofs.close();
+		    system(("mv "+download_directory+nts_filename+".TMP "+download_directory+nts_filename).c_str());
 		  }
-		  std::string nts_filename=t->filename.substr(0,1)+row[2]+"."+t->filename.substr(1);
+		  nts_filename=t->filename.substr(0,1)+row[2]+"."+t->filename.substr(1);
 		  if (!ofs.is_open()) {
 		    if (stat((download_directory+nts_filename).c_str(),&buf) != 0) {
 			if (!nts_table->found(nts_filename,e)) {
@@ -768,7 +778,7 @@ mysystem2("/bin/ln -s "+webhome+"/"+t->webID+" "+download_directory+t->filename,
 			  t->insert_filenames.emplace_back(nts_filename.substr(1));
 			  t->wget_filenames.emplace_back(nts_filename.substr(1)+compression);
 			}
-			ofs.open((download_directory+nts_filename).c_str());
+			ofs.open((download_directory+nts_filename+".TMP").c_str());
 			if (!ofs.is_open()) {
 			  std::cerr << "Error opening " << download_directory << nts_filename << " for output" << std::endl;
 			  exit(1);
@@ -935,10 +945,12 @@ mysystem2("/bin/ln -s "+webhome+"/"+t->webID+" "+download_directory+t->filename,
 	    t->filename="";
 	    t->f_attach="";
 	  }
-	  else
+	  else {
+	    system(("mv "+download_directory+t->filename+".TMP "+download_directory+t->filename).c_str());
 	    t->write_bytes+=buf.st_size;
+	  }
 	}
-	else {
+	else if (ofs.is_open()) {
 	  auto offset=ofs.tellp();
 	  ofs.close();
 	  if (offset == 0) {
@@ -949,24 +961,30 @@ mysystem2("/bin/ln -s "+webhome+"/"+t->webID+" "+download_directory+t->filename,
 	    t->filename="";
 	    t->f_attach="";
 	  }
-	}
-	if (do_sort) {
-	  if (std::regex_search(t->format,std::regex("grib2",std::regex::icase)) && std::regex_search(local_args.ofmt,std::regex("netcdf",std::regex::icase))) {
-	    if (!std::regex_search(t->filename,std::regex("\\.nc$"))) {
-		std::stringstream oss,ess;
-		mysystem2("/bin/tcsh -c \"sortgrid -f grib2 -o nc "+download_directory+t->filename+" "+download_directory+t->filename+".sorted\"",oss,ess);
-		if (ess.str().empty()) {
-		  system(("mv "+download_directory+t->filename+".sorted "+download_directory+t->filename).c_str());
+	  else if (t->insert_filenames.size() > 0) {
+	    system(("mv "+download_directory+"/"+t->insert_filenames.back()+".TMP "+download_directory+"/"+t->insert_filenames.back()).c_str());
+	  }
+	  else {
+	    if (do_sort) {
+		if (std::regex_search(t->format,std::regex("grib2",std::regex::icase)) && std::regex_search(local_args.ofmt,std::regex("netcdf",std::regex::icase))) {
+		  if (!std::regex_search(t->filename,std::regex("\\.nc$"))) {
+		    std::stringstream oss,ess;
+		    mysystem2("/bin/tcsh -c \"sortgrid -f grib2 -o nc "+download_directory+t->filename+".TMP "+download_directory+t->filename+".sorted\"",oss,ess);
+		    if (ess.str().empty()) {
+			system(("mv "+download_directory+t->filename+".sorted "+download_directory+t->filename+".TMP").c_str());
+		    }
+		    else {
+			std::cerr << "sort error: '" << ess.str() << "'" << std::endl;
+			exit(1);
+		    }
+		  }
 		}
-		else {
-		  std::cerr << "sort error: '" << ess.str() << "'" << std::endl;
+		else if (!local_args.ofmt.empty()) {
+		  std::cerr << "don't know how to sort input format '" << t->format << "' to output format '" << local_args.ofmt << "'" << std::endl;
 		  exit(1);
 		}
 	    }
-	  }
-	  else if (!local_args.ofmt.empty()) {
-	    std::cerr << "don't know how to sort input format '" << t->format << "' to output format '" << local_args.ofmt << "'" << std::endl;
-	    exit(1);
+	    system(("mv "+download_directory+"/"+t->filename+".TMP "+download_directory+"/"+t->filename).c_str());
 	  }
 	}
     }
@@ -1002,7 +1020,7 @@ void *do_conversion(void *ts)
 	InputGRIBStream istream;
 	istream.open((download_directory+fileinfo[0]).c_str());
 	OutputNetCDFStream onc;
-	if (!onc.open(download_directory+fileinfo[0]+".nc")) {
+	if (!onc.open(download_directory+fileinfo[0]+".nc.TMP")) {
 	  std::cerr << "Error opening " << download_directory << fileinfo[0] << ".nc for output" << std::endl;
 	  exit(1);
 	}
@@ -1037,6 +1055,7 @@ void *do_conversion(void *ts)
 	  std::cerr << "Error: " << myerror << " for file " << download_directory << fileinfo[0] << ".nc" << std::endl;
 	  myerror="";
 	}
+	system(("mv "+download_directory+fileinfo[0]+".nc.TMP "+download_directory+fileinfo[0]+".nc").c_str());
 	t->fmt="netCDF";
 	t->insert_filenames.emplace_back(fileinfo[0].substr(1)+".nc");
 	t->wget_filenames.emplace_back(fileinfo[0].substr(1)+".nc"+compression);
