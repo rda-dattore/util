@@ -938,7 +938,7 @@ mysystem2("/bin/ln -s "+webhome+"/"+t->webID+" "+download_directory+t->filename,
 	  }
 	  stat((download_directory+t->filename).c_str(),&buf);
 	  if (buf.st_size == 8) {
-	    system(("rm -f "+download_directory+t->filename).c_str());
+	    system(("rm -f "+download_directory+t->filename+".TMP").c_str());
 	    if (t->insert_filenames.size() == 1) {
 		t->insert_filenames.clear();
 	    }
@@ -954,7 +954,7 @@ mysystem2("/bin/ln -s "+webhome+"/"+t->webID+" "+download_directory+t->filename,
 	  auto offset=ofs.tellp();
 	  ofs.close();
 	  if (offset == 0) {
-	    system(("rm -f "+download_directory+t->filename).c_str());
+	    system(("rm -f "+download_directory+t->filename+".TMP").c_str());
 	    if (t->insert_filenames.size() == 1) {
 		t->insert_filenames.clear();
 	    }
