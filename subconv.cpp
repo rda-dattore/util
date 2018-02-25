@@ -533,7 +533,6 @@ void *build_file(void *ts)
   }
   std::string union_query="";
   std::string union_query_no_dates="";
-  auto do_sort=false;
   for (const auto& parameter : t->parameters) {
     if (!union_query.empty()) {
 	union_query+=" union ";
@@ -573,9 +572,8 @@ void *build_file(void *ts)
 	 union_query_no_dates+=" and "+t->uConditions_no_dates;
 	}
 	if (parameter == t->parameters.back()) {
-	  query.set("select distinct byte_offset,byte_length from ("+union_query+") as u");
-	  query_no_dates.set("select distinct byte_offset,byte_length from ("+union_query_no_dates+") as u");
-	  do_sort=true;
+	  query.set("select distinct byte_offset,byte_length from ("+union_query+") as u order by byte_offset");
+	  query_no_dates.set("select distinct byte_offset,byte_length from ("+union_query_no_dates+") as u order by byte_offset");
 	}
     }
   }
@@ -965,22 +963,14 @@ mysystem2("/bin/ln -s "+webhome+"/"+t->webID+" "+download_directory+t->filename,
 	    system(("mv "+download_directory+"/"+t->insert_filenames.back()+".TMP "+download_directory+"/"+t->insert_filenames.back()).c_str());
 	  }
 	  else {
-	    if (do_sort) {
-		if (std::regex_search(t->format,std::regex("grib2",std::regex::icase)) && std::regex_search(local_args.ofmt,std::regex("netcdf",std::regex::icase))) {
-		  if (!std::regex_search(t->filename,std::regex("\\.nc$"))) {
-		    std::stringstream oss,ess;
-		    mysystem2("/bin/tcsh -c \"sortgrid -f grib2 -o nc "+download_directory+t->filename+".TMP "+download_directory+t->filename+".sorted\"",oss,ess);
-		    if (ess.str().empty()) {
-			system(("mv "+download_directory+t->filename+".sorted "+download_directory+t->filename+".TMP").c_str());
-		    }
-		    else {
-			std::cerr << "sort error: '" << ess.str() << "'" << std::endl;
-			exit(1);
-		    }
-		  }
+	    if (std::regex_search(t->format,std::regex("grib2",std::regex::icase)) && std::regex_search(local_args.ofmt,std::regex("netcdf",std::regex::icase)) && !std::regex_search(t->filename,std::regex("\\.nc$"))) {
+		std::stringstream oss,ess;
+		mysystem2("/bin/tcsh -c \"sortgrid -f grib2 -o nc "+download_directory+t->filename+".TMP "+download_directory+t->filename+".sorted\"",oss,ess);
+		if (ess.str().empty()) {
+		  system(("mv "+download_directory+t->filename+".sorted "+download_directory+t->filename+".TMP").c_str());
 		}
-		else if (!local_args.ofmt.empty()) {
-		  std::cerr << "don't know how to sort input format '" << t->format << "' to output format '" << local_args.ofmt << "'" << std::endl;
+		else {
+		  std::cerr << "sort error: '" << ess.str() << "'" << std::endl;
 		  exit(1);
 		}
 	    }
