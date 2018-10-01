@@ -20,19 +20,24 @@
 #include <mymap.hpp>
 #include <netcdf.hpp>
 #include <grid.hpp>
+#include <gridutils.hpp>
 #include <myerror.hpp>
 #include <buffer.hpp>
 #include <strutils.hpp>
 #include <utils.hpp>
 #include <bits.hpp>
 #include <metadata.hpp>
+#include <metahelpers.hpp>
 #include <bitmap.hpp>
 #include <web/web.hpp>
 
-metautils::Directives directives;
-metautils::Args args;
+metautils::Directives metautils::directives;
+metautils::Args metautils::args;
 std::string myerror="";
 std::string mywarning="";
+
+const std::string SHARE_DIRECTORY="/glade/u/home/rdadata/share";
+
 struct LocalArgs {
   LocalArgs() : startdate(),enddate(),parameters(),formats(),product(),grid_definition(),level(),tindex(),ofmt(),nlat(0.),slat(0.),wlon(0.),elon(0.),ladiff(0.),lodiff(0.),lat_s(),lon_s(),ststep(false) {}
 
@@ -203,7 +208,7 @@ void write_netcdf_subset_header(std::string input_file,OutputNetCDFStream& onc,s
   for (size_t n=0; n < attrs.size(); ++n) {
     onc.add_global_attribute(attrs[n].name,attrs[n].nc_type,attrs[n].num_values,attrs[n].values);
   }
-  onc.add_global_attribute("Creation date and time",current_date_time().to_string());
+  onc.add_global_attribute("Creation date and time",dateutils::current_date_time().to_string());
   onc.add_global_attribute("Creator","NCAR - CISL RDA (dattore); data request #"+rqst_index);
   auto dims=inc.dimensions();
   num_values_in_subset=-1;
@@ -381,8 +386,7 @@ void write_netcdf_subset_header(std::string input_file,OutputNetCDFStream& onc,s
 
 void clear_wfrqst()
 {
-  MySQL::Server server_d;
-  metautils::connect_to_rdadb_server(server_d);
+  MySQL::Server server_d(metautils::directives.database_server,metautils::directives.rdadb_username,metautils::directives.rdadb_password,"dssdb");
   if (!server_d) {
     std::cerr << "Error: unable to connect to RDADB (clear_wfrqst)" << std::endl;
     exit(1);
@@ -393,8 +397,7 @@ void clear_wfrqst()
 
 void insert_into_wfrqst(std::string fname,std::string fmt,size_t disp_order)
 {
-  MySQL::Server server_d;
-  metautils::connect_to_rdadb_server(server_d);
+  MySQL::Server server_d(metautils::directives.database_server,metautils::directives.rdadb_username,metautils::directives.rdadb_password,"dssdb");
   if (!server_d) {
     std::cerr << "Error: unable to connect to RDADB (insert_into_wfrqst)" << std::endl;
     exit(1);
@@ -409,8 +412,7 @@ void insert_into_wfrqst(std::string fname,std::string fmt,size_t disp_order)
 
 void set_fcount(size_t fcount)
 {
-  MySQL::Server server_d;
-  metautils::connect_to_rdadb_server(server_d);
+  MySQL::Server server_d(metautils::directives.database_server,metautils::directives.rdadb_username,metautils::directives.rdadb_password,"dssdb");
   if (!server_d) {
     std::cerr << "Error: unable to connect to RDADB (set_fcount)" << std::endl;
     exit(1);
@@ -445,7 +447,7 @@ void *build_file(void *ts)
     float f;
   } b4_data;
 
-  GridToNetCDF::GridData grid_data;
+  gridToNetCDF::GridData grid_data;
   grid_data.wrote_header=false;
   grid_data.parameter_mapper=t->parameter_mapper;
   t->f_attach="";
@@ -580,7 +582,7 @@ void *build_file(void *ts)
   MySQL::Server server;
   size_t num_tries=0;
   while (num_tries < 3) {
-    metautils::connect_to_metadata_server(server);
+    server.connect(metautils::directives.database_server,metautils::directives.metadb_username,metautils::directives.metadb_password,"");
     if (server) {
 	break;
     }
@@ -620,9 +622,9 @@ void *build_file(void *ts)
 	  }
 	  if (std::stoi(row[0]) == static_cast<int>(query.num_rows())) {
 std::cerr << "**linked '" << webhome+"/"+t->webID << "' to '" << download_directory+t->filename << "'" << std::endl;
-//	    mysystem2("/bin/cp "+webhome+"/"+t->webID+" "+download_directory+t->filename,oss,ess);
+//	    unixutils::mysystem2("/bin/cp "+webhome+"/"+t->webID+" "+download_directory+t->filename,oss,ess);
 std::stringstream oss,ess;
-mysystem2("/bin/ln -s "+webhome+"/"+t->webID+" "+download_directory+t->filename,oss,ess);
+unixutils::mysystem2("/bin/ln -s "+webhome+"/"+t->webID+" "+download_directory+t->filename,oss,ess);
 	    if (!ess.str().empty()) {
 		std::cerr << "Error: " << ess.str() << std::endl;
 		exit(1);
@@ -650,6 +652,7 @@ mysystem2("/bin/ln -s "+webhome+"/"+t->webID+" "+download_directory+t->filename,
 	grid_data.subset_definition.north_latitude=local_args.nlat;
 	grid_data.subset_definition.west_longitude=local_args.wlon;
 	grid_data.subset_definition.east_longitude=local_args.elon;
+	grid_data.path_to_gauslat_lists=SHARE_DIRECTORY+"/GRIB";
 	if (get_timings) {
 	  clock_gettime(CLOCK_MONOTONIC,&db_times.start);
 	}
@@ -717,7 +720,7 @@ mysystem2("/bin/ln -s "+webhome+"/"+t->webID+" "+download_directory+t->filename,
 			    if (get_timings) {
 				clock_gettime(CLOCK_MONOTONIC,&nc_times.start);
 			    }
-			    convert_grid_to_netcdf(grid,Grid::grib2Format,&onc,grid_data);
+			    convert_grid_to_netcdf(grid,Grid::grib2Format,&onc,grid_data,SHARE_DIRECTORY+"/metadata/LevelTables");
 			    if (get_timings) {
 				clock_gettime(CLOCK_MONOTONIC,&nc_times.end);
 				t->timing_data.nc+=elapsed_time(nc_times);
@@ -745,7 +748,7 @@ mysystem2("/bin/ln -s "+webhome+"/"+t->webID+" "+download_directory+t->filename,
 			  if (grid->definition().type == Grid::gaussianLatitudeLongitudeType) {
 			    if (glats == nullptr) {
 				glats=new my::map<Grid::GLatEntry>;
-				fill_gaussian_latitudes(*glats,grid->definition().num_circles,true);
+				gridutils::fill_gaussian_latitudes(SHARE_DIRECTORY+"/GRIB",*glats,grid->definition().num_circles,true);
 			    }
 			    ofs << grid->valid_date_time().to_string("%Y%m%d%H%MM,") << grid->valid_date_time().to_string("%mm/%dd/%Y,%HH:%MM") << "," << grid->gridpoint(grid->longitude_index_of(local_args.wlon),(reinterpret_cast<GRIBGrid *>(grid))->latitude_index_of(local_args.nlat,glats)) << std::endl;
 			  }
@@ -813,6 +816,7 @@ mysystem2("/bin/ln -s "+webhome+"/"+t->webID+" "+download_directory+t->filename,
 			smsg2.initialize(2,NULL,0,true,true);
 			for (size_t n=0; n < msg2.number_of_grids(); ++n) {
 			  auto grid=msg2.grid(n);
+			  grid->set_path_to_gaussian_latitude_data(SHARE_DIRECTORY+"/GRIB");
 			  if (is_selected_parameter(t->format,grid,t->parameterTable)) {
 			    GRIB2Grid sgrid2;
 			    sgrid2=(reinterpret_cast<GRIB2Grid *>(grid))->create_subset(local_args.slat,local_args.nlat,1,local_args.wlon,local_args.elon,1);
@@ -833,6 +837,7 @@ mysystem2("/bin/ln -s "+webhome+"/"+t->webID+" "+download_directory+t->filename,
 			  GRIBMessage smsg;
 			  smsg.initialize(1,NULL,0,true,true);
 			  GRIBGrid sgrid;
+			  grid->set_path_to_gaussian_latitude_data(SHARE_DIRECTORY+"/GRIB");
 			  sgrid=create_subset_grid(*(reinterpret_cast<GRIBGrid *>(grid)),local_args.slat,local_args.nlat,local_args.wlon,local_args.elon);
 			  if (sgrid.is_filled()) {
 			    smsg.append_grid(&sgrid);
@@ -901,7 +906,7 @@ mysystem2("/bin/ln -s "+webhome+"/"+t->webID+" "+download_directory+t->filename,
 			  switch (static_cast<netCDFStream::NcType>(std::stoi(row[3]))) {
 			    case netCDFStream::NcType::FLOAT:
 			    {
-				get_bits(&buffer[n*4],b4_data.i,0,32);
+				bits::get(&buffer[n*4],b4_data.i,0,32);
 				var_data.set(m++,b4_data.f);
 				break;
 			    }
@@ -965,7 +970,7 @@ mysystem2("/bin/ln -s "+webhome+"/"+t->webID+" "+download_directory+t->filename,
 	  else {
 	    if (std::regex_search(t->format,std::regex("grib2",std::regex::icase)) && std::regex_search(local_args.ofmt,std::regex("netcdf",std::regex::icase)) && !std::regex_search(t->filename,std::regex("\\.nc$"))) {
 		std::stringstream oss,ess;
-		mysystem2("/bin/tcsh -c \"sortgrid -f grib2 -o nc "+download_directory+t->filename+".TMP "+download_directory+t->filename+".sorted\"",oss,ess);
+		unixutils::mysystem2("/bin/tcsh -c \"sortgrid -f grib2 -o nc "+download_directory+t->filename+".TMP "+download_directory+t->filename+".sorted\"",oss,ess);
 		if (ess.str().empty()) {
 		  system(("mv "+download_directory+t->filename+".sorted "+download_directory+t->filename+".TMP").c_str());
 		}
@@ -1000,7 +1005,7 @@ void *do_conversion(void *ts)
   if (get_timings) {
     clock_gettime(CLOCK_MONOTONIC,&times.start);
   }
-  GridToNetCDF::GridData grid_data;
+  gridToNetCDF::GridData grid_data;
   grid_data.parameter_mapper=t->parameter_mapper;
   t->insert_filenames.clear();
   t->wget_filenames.clear();
@@ -1018,9 +1023,10 @@ void *do_conversion(void *ts)
 	grid_data.subset_definition.north_latitude=local_args.nlat;
 	grid_data.subset_definition.west_longitude=local_args.wlon;
 	grid_data.subset_definition.east_longitude=local_args.elon;
-	GridToNetCDF::HouseKeeping hk;
+	grid_data.path_to_gauslat_lists=SHARE_DIRECTORY+"/GRIB";
+	gridToNetCDF::HouseKeeping hk;
 	hk.include_parameter_table=t->includeParameterTable;
-	write_netcdf_header_from_grib_file(istream,onc,grid_data,hk);
+	write_netcdf_header_from_grib_file(istream,onc,grid_data,hk,SHARE_DIRECTORY+"/metadata/LevelTables");
 	if (grid_data.record_flag < 0) {
 	  Buffer buffer;
 	  int len;
@@ -1032,13 +1038,13 @@ void *do_conversion(void *ts)
 	    for (size_t n=0; n < msg.number_of_grids(); ++n) {
 		auto grid=msg.grid(n);
 		if (is_selected_parameter(t->format,grid,t->parameterTable)) {
-		  convert_grid_to_netcdf(grid,Grid::grib2Format,&onc,grid_data);
+		  convert_grid_to_netcdf(grid,Grid::grib2Format,&onc,grid_data,SHARE_DIRECTORY+"/metadata/LevelTables");
 		}
 	    }
 	  }
 	}
 	else {
-	  convert_grib_file_to_netcdf(download_directory+fileinfo[0],onc,grid_data.ref_date_time,grid_data.cell_methods,grid_data.subset_definition,*(t->parameter_mapper),hk.unique_variable_table,grid_data.record_flag);
+	  gridToNetCDF::convert_grib_file_to_netcdf(download_directory+fileinfo[0],onc,grid_data.ref_date_time,grid_data.cell_methods,grid_data.subset_definition,*(t->parameter_mapper),SHARE_DIRECTORY+"/metadata/LevelTables",hk.unique_variable_table,grid_data.record_flag);
 	}
 	istream.close();
 	if (!onc.close()) {
@@ -1100,7 +1106,7 @@ void combine_csv_files(std::list<std::string>& file_list,std::list<std::string>&
     }
     ifs.close();
     ifs.clear();
-    mysystem2("/bin/rm "+download_directory+"/"+sp[2],oss,ess);
+    unixutils::mysystem2("/bin/rm "+download_directory+"/"+sp[2],oss,ess);
   }
   line_list.sort(
   [](const std::string& left,const std::string& right) -> bool
@@ -1131,9 +1137,7 @@ std::this_thread::sleep_for(std::chrono::seconds(15));
 
 int main(int argc,char **argv)
 {
-  std::ifstream ifs;
   std::ofstream ofs;
-  char line[256];
   MySQL::LocalQuery query,query2;
   MySQL::Row row,row2;
   std::string invConditions,fmtConditions,whereConditions,lvlConditions,paramConditions,allLvlConditions;
@@ -1147,10 +1151,10 @@ int main(int argc,char **argv)
   ThreadStruct *t;
   int *t_idx;
   std::vector<std::shared_ptr<xmlutils::ParameterMapper>> p;
-  xmlutils::LevelMapper level_mapper;
+  xmlutils::LevelMapper level_mapper(SHARE_DIRECTORY+"/metadata/LevelTables");
   GRIBMessage msg;
   GRIB2Grid grid;
-  std::string rinfo,filename,sdum,f_attach,http_cookie;
+  std::string rinfo,filename,f_attach,http_cookie;
   size_t disp_order;
   int num_input=0,num_topt_mo=0,num_parameters=0;
   long long size_input=0;
@@ -1214,7 +1218,7 @@ int main(int argc,char **argv)
 	is_test=true;
     }
   }
-  metautils::read_config("subconv","","",false);
+  metautils::read_config("subconv","",false);
   if (!is_test) {
     rqst_index=argv[next++];
     clear_wfrqst();
@@ -1227,11 +1231,10 @@ int main(int argc,char **argv)
     t[n].obuffer.reset(new unsigned char[OBUF_LEN]);
     pthread_attr_init(&t[n].tattr);
     pthread_attr_setstacksize(&t[n].tattr,10000000);
-    p.emplace_back(new xmlutils::ParameterMapper);
+    p.emplace_back(new xmlutils::ParameterMapper(SHARE_DIRECTORY+"/metadata/ParameterTables"));
   }
   t_idx=new int[MAX_NUM_THREADS];
-  MySQL::Server server_d;
-  metautils::connect_to_rdadb_server(server_d);
+  MySQL::Server server_d(metautils::directives.database_server,metautils::directives.rdadb_username,metautils::directives.rdadb_password,"dssdb");
   if (!server_d) {
     std::cerr << "Error: unable to connect to RDADB (1)" << std::endl;
     exit(1);
@@ -1259,8 +1262,37 @@ int main(int argc,char **argv)
     duser=row[2];
     location=row[3];
   }
-  MySQL::Server server_m;
-  metautils::connect_to_metadata_server(server_m);
+  std::string dsrqst_root,dataset_block;
+  std::ifstream ifs("/glade/u/home/dattore/util/subconv.conf");
+  if (ifs.is_open()) {
+    char line[256];
+    ifs.getline(line,256);
+    while (!ifs.eof()) {
+	auto lparts=strutils::split(line);
+	if (lparts.front() == "dsrqstRoot") {
+	  dsrqst_root=lparts.back();
+	}
+	else if (strutils::to_lower(lparts.front()) == strutils::to_lower(duser)) {
+	  if (lparts.size() > 1) {
+	    dataset_block=lparts.back();
+	  }
+	  else {
+	    dataset_block="all";
+	  }
+	}
+/*
+	else if (strutils::to_lower(lparts[0]) == strutils::to_lower(duser) && (lparts.size() == 1 || lparts[1] == metautils::args.dsnum || lparts[1].empty())) {
+	  std::cerr << "Refuse to process data request " << rqst_index << " for " << duser << std::endl;
+	  std::cerr << rinfo << std::endl;
+	  unixutils::mysystem2("/glade/u/home/rdadata/bin/dsrqst -sr -ri "+rqst_index+" -rs E",oss,ess);
+	  exit(1);
+	}
+*/
+	ifs.getline(line,256);
+    }
+    ifs.close();
+  }
+  MySQL::Server server_m(metautils::directives.database_server,metautils::directives.metadb_username,metautils::directives.metadb_password,"");
   if (!server_m) {
     std::cerr << "Error: unable to connect to metadata server - 1" << std::endl;
     exit(1);
@@ -1281,23 +1313,14 @@ int main(int argc,char **argv)
     strutils::trim(part);
     auto nvp=strutils::split(part,"=");
     if (nvp[0] == "dsnum") {
-	args.dsnum=nvp[1];
+	metautils::args.dsnum=nvp[1];
 // restrictions
 	if (!is_test && !ignore_restrictions) {
-	  ifs.open("/glade/u/home/dattore/util/subconv.conf");
-	  if (ifs.is_open()) {
-	    ifs.getline(line,256);
-	    while (!ifs.eof()) {
-		auto lparts=strutils::split(line);
-		if (strutils::to_lower(lparts[0]) == strutils::to_lower(duser) && (lparts.size() == 1 || lparts[1] == args.dsnum || lparts[1].empty())) {
-		  std::cerr << "Refuse to process data request " << rqst_index << " for " << duser << std::endl;
-		  std::cerr << rinfo << std::endl;
-		  mysystem2("/glade/u/home/rdadata/bin/dsrqst -sr -ri "+rqst_index+" -rs E",oss,ess);
-		  exit(1);
-		}
-		ifs.getline(line,256);
-	    }
-	    ifs.close();
+	  if (!dataset_block.empty() && (dataset_block == "all" || dataset_block == metautils::args.dsnum)) {
+	    std::cerr << "Refuse to process data request " << rqst_index << " for " << duser << std::endl;
+	    std::cerr << rinfo << std::endl;
+	    unixutils::mysystem2("/glade/u/home/rdadata/bin/dsrqst -sr -ri "+rqst_index+" -rs E",oss,ess);
+	    exit(1);
 	  }
 	  query.set("select sum(size_request) from dsrqst where email = '"+duser+"' and status = 'O'");
 	  if (query.submit(server_d) == 0 && query.fetch_row(row) && !row[0].empty() && std::stoll(row[0]) > 1000000000000) {
@@ -1307,11 +1330,11 @@ int main(int argc,char **argv)
 	    else {
 		std::cerr << "User has exceeded quota" << std::endl;
 	    }
-	    mysystem2("/glade/u/home/rdadata/bin/dsrqst -sr -ri "+rqst_index+" -rs E",oss,ess);
+	    unixutils::mysystem2("/glade/u/home/rdadata/bin/dsrqst -sr -ri "+rqst_index+" -rs E",oss,ess);
 	    exit(1);
 	  }
 	}
-	dsnum2=strutils::substitute(args.dsnum,".","");
+	dsnum2=strutils::substitute(metautils::args.dsnum,".","");
     }
     else if (nvp[0] == "startdate") {
 	local_args.startdate=strutils::substitute(nvp[1],"-","");
@@ -1474,7 +1497,7 @@ int main(int argc,char **argv)
   }
   server_d.disconnect();
 // grids 62 and 64 were consolidated to 83 for ds093.0 and ds093.1
-  if (std::regex_search(args.dsnum,std::regex("^093\\.[01]")) && (local_args.grid_definition == "62" || local_args.grid_definition == "64")) {
+  if (std::regex_search(metautils::args.dsnum,std::regex("^093\\.[01]")) && (local_args.grid_definition == "62" || local_args.grid_definition == "64")) {
     local_args.grid_definition="83";
   }
   if (local_args.nlat < 99990. && local_args.nlat == local_args.slat && local_args.wlon == local_args.elon) {
@@ -1483,7 +1506,7 @@ int main(int argc,char **argv)
   if (strutils::to_lower(local_args.ofmt) == "csv" && local_args.parameters.size() == 1 && strutils::occurs(local_args.level,",") == 0) {
     auto pparts=strutils::split(local_args.parameters.front(),"!");
     uniqueFormatsTable.found(pparts[0],e);
-    csv_parameter=metadata::detailed_parameter(*(p[0]),e.sdum,pparts[1]);
+    csv_parameter=metatranslations::detailed_parameter(*(p[0]),e.sdum,pparts[1]);
     if ( (idx=csv_parameter.find(" <small")) != std::string::npos) {
 	csv_parameter=csv_parameter.substr(0,idx);
     }
@@ -1499,7 +1522,7 @@ int main(int argc,char **argv)
     }
     if (query.submit(server_m) == 0 && query.num_rows() > 0) {
 	query.fetch_row(row);
-	csv_level=metadata::detailed_level(level_mapper,e.sdum,row[0],row[1],row[2],false);
+	csv_level=metatranslations::detailed_level(level_mapper,e.sdum,row[0],row[1],row[2],false);
 	strutils::replace_all(csv_level,"<nobr>","");
 	strutils::replace_all(csv_level,"</nobr>","");
     }
@@ -1514,7 +1537,7 @@ int main(int argc,char **argv)
 	subflag+=1;
     }
   }
-  if (myequalf(local_args.nlat,90.,0.001) && myequalf(local_args.slat,-90.,0.001) && myequalf(local_args.wlon,-180.,0.001) && myequalf(local_args.elon,180.,0.001)) {
+  if (floatutils::myequalf(local_args.nlat,90.,0.001) && floatutils::myequalf(local_args.slat,-90.,0.001) && floatutils::myequalf(local_args.wlon,-180.,0.001) && floatutils::myequalf(local_args.elon,180.,0.001)) {
     local_args.nlat=local_args.elon=99999.;
     local_args.slat=local_args.wlon=-99999.;
   }
@@ -1526,7 +1549,7 @@ int main(int argc,char **argv)
     if (num_topt_mo == 12)
 	topt_mo[0]=0;
   }
-  metautils::connect_to_rdadb_server(server_d);
+  server_d.connect(metautils::directives.database_server,metautils::directives.rdadb_username,metautils::directives.rdadb_password,"dssdb");
   if (!server_d) {
     if (is_test) {
 	std::cout << "Error: database connection error" << std::endl;
@@ -1536,7 +1559,7 @@ int main(int argc,char **argv)
     }
     exit(1);
   }
-  query.set("webhome","dataset","dsid = 'ds"+args.dsnum+"'");
+  query.set("webhome","dataset","dsid = 'ds"+metautils::args.dsnum+"'");
   if (query.submit(server_d) < 0) {
     if (is_test)
 	std::cout << "Error: database error - '" << query.error() << "'" << std::endl;
@@ -1556,12 +1579,11 @@ int main(int argc,char **argv)
 	std::cout << rinfo << std::endl;
     }
     else {
-	std::cerr << "Error: unable to get webhome for " << args.dsnum << std::endl;
+	std::cerr << "Error: unable to get webhome for " << metautils::args.dsnum << std::endl;
     }
     exit(1);
   }
-strutils::replace_all(webhome,"/glade/data02/dsszone","/glade/p/rda/data");
-  query.set("wfile,data_size,tindex","wfile","dsid = 'ds"+args.dsnum+"' and property = 'A' and type = 'D'");
+  query.set("wfile,data_size,tindex","wfile","dsid = 'ds"+metautils::args.dsnum+"' and property = 'A' and type = 'D'");
   if (query.submit(server_d) < 0) {
     if (is_test) {
 	std::cout << "Error: database error - '" << query.error() << "'" << std::endl;
@@ -1582,7 +1604,7 @@ strutils::replace_all(webhome,"/glade/data02/dsszone","/glade/p/rda/data");
     local_args.ladiff=local_args.nlat-local_args.slat;
   if (local_args.elon < 999. && local_args.wlon > -999.)
     local_args.lodiff=local_args.elon-local_args.wlon;
-  if (args.dsnum.empty()) {
+  if (metautils::args.dsnum.empty()) {
     if (is_test) {
 	std::cout << "Error: bad request" << std::endl;
 	std::cout << "Your request:" << std::endl;
@@ -1919,7 +1941,7 @@ strutils::replace_all(webhome,"/glade/data02/dsszone","/glade/p/rda/data");
 		    }
 		    grid_def.loincrement=std::stof(gdef_parts[6]);
 		    grid_def.laincrement=std::stof(gdef_parts[7]);
-		    grid_def=fix_grid_definition(grid_def,grid_dim);
+		    grid_def=gridutils::fix_grid_definition(grid_def,grid_dim);
 		    be.data->ladiffs.emplace_back(grid_def.laincrement);
 		    be.data->lodiffs.emplace_back(grid_def.loincrement);
 		  }
@@ -1945,8 +1967,8 @@ strutils::replace_all(webhome,"/glade/data02/dsszone","/glade/p/rda/data");
 		    }
 		    grid_def.loincrement=std::stof(gdef_parts[6]);
 		    grid_def.num_circles=std::stoi(gdef_parts[7]);
-		    grid_def=fix_grid_definition(grid_def,grid_dim);
-		    fill_gaussian_latitudes(gaus_lats,grid_def.num_circles,(grid_def.slatitude > grid_def.elatitude));
+		    grid_def=gridutils::fix_grid_definition(grid_def,grid_dim);
+		    gridutils::fill_gaussian_latitudes(SHARE_DIRECTORY+"/GRIB",gaus_lats,grid_def.num_circles,(grid_def.slatitude > grid_def.elatitude));
 		    if (gaus_lats.found(grid_def.num_circles,gle)) {
 			m=l=-1;
 			for (n=0; n < static_cast<int>(grid_def.num_circles*2); n++) {
@@ -2204,7 +2226,7 @@ insert_into_wfrqst(fname,t[n].fmt,t[n].disp_order);
 	t[n].timing_data.reset();
     }
   }
-  metautils::connect_to_metadata_server(server_m);
+  server_m.connect(metautils::directives.database_server,metautils::directives.metadb_username,metautils::directives.metadb_password,"");
   if (!server_m) {
     std::cerr << "Error: unable to connect to metadata server - 2" << std::endl;
     exit(1);
@@ -2212,18 +2234,21 @@ insert_into_wfrqst(fname,t[n].fmt,t[n].disp_order);
   http_cookie="HTTP_COOKIE=duser="+duser;
   putenv(const_cast<char *>(http_cookie.c_str()));
   putenv(const_cast<char *>("SERVER_NAME=rda.ucar.edu"));
-  sdum=download_directory;
-  strutils::replace_all(sdum,"/glade/data02/dsstransfer","");
-  strutils::replace_all(sdum,"/glade/p/rda/transfer","");
+  auto web_download_directory=download_directory;
+  strutils::replace_all(web_download_directory,dsrqst_root,"");
   if (local_args.ofmt == "csv") {
     combine_csv_files(insert_list,wget_list);
   }
-  ofs.open((download_directory+"/wget."+rqst_index+".csh").c_str());
-  create_wget_script(wget_list,sdum,"csh",&ofs);
+  ofs.open((download_directory+"/unix-wget."+rqst_index+".csh").c_str());
+  create_wget_script(wget_list,web_download_directory,"csh",&ofs);
   ofs.close();
   ofs.clear();
-  ofs.open((download_directory+"/curl."+rqst_index+".csh").c_str());
-  create_curl_script(wget_list,sdum,"csh",&ofs);
+  ofs.open((download_directory+"/unix-curl."+rqst_index+".csh").c_str());
+  create_curl_script(wget_list,web_download_directory,"csh",&ofs);
+  ofs.close();
+  ofs.clear();
+  ofs.open((download_directory+"/dos-wget."+rqst_index+".bat").c_str());
+  create_wget_script(wget_list,web_download_directory,"bat",&ofs);
   ofs.close();
   ofs.clear();
   ofs.open((download_directory+"/.email_notice").c_str());
@@ -2253,14 +2278,14 @@ insert_into_wfrqst(fname,t[n].fmt,t[n].disp_order);
     for (const auto& parameter : local_args.parameters) {
 	auto pparts=strutils::split(parameter,"!");
 	uniqueFormatsTable.found(pparts[0],e);
-	sdum=metadata::detailed_parameter(*(t[0].parameter_mapper),e.sdum,pparts[1]);
-	if ( (idx=sdum.find(" <small")) != std::string::npos) {
-	  sdum=sdum.substr(0,idx);
+	auto detailed_parameter=metatranslations::detailed_parameter(*(t[0].parameter_mapper),e.sdum,pparts[1]);
+	if ( (idx=detailed_parameter.find(" <small")) != std::string::npos) {
+	  detailed_parameter=detailed_parameter.substr(0,idx);
 	}
-	if (!uniqueParametersTable.found(sdum,e)) {
-	  e.key=sdum;
+	if (!uniqueParametersTable.found(detailed_parameter,e)) {
+	  e.key=detailed_parameter;
 	  uniqueParametersTable.insert(e);
-	  note+="     "+sdum+"\n";
+	  note+="     "+detailed_parameter+"\n";
 	}
     }
   }
@@ -2274,13 +2299,13 @@ insert_into_wfrqst(fname,t[n].fmt,t[n].disp_order);
 	  query.set("map,type,value","WGrML.levels","code = "+level);
 	  if (query.submit(server_m) == 0 && query.num_rows() > 0) {
 	    query.fetch_row(row);
-	    sdum=metadata::detailed_level(level_mapper,e.sdum,row[0],row[1],row[2],false);
-	    strutils::replace_all(sdum,"<nobr>","");
-	    strutils::replace_all(sdum,"</nobr>","");
-	    if (!uniqueLevelTable.found(sdum,e)) {
-		e.key=sdum;
+	    auto detailed_level=metatranslations::detailed_level(level_mapper,e.sdum,row[0],row[1],row[2],false);
+	    strutils::replace_all(detailed_level,"<nobr>","");
+	    strutils::replace_all(detailed_level,"</nobr>","");
+	    if (!uniqueLevelTable.found(detailed_level,e)) {
+		e.key=detailed_level;
 		uniqueLevelTable.insert(e);
-		note+="     "+sdum+"\n";
+		note+="     "+detailed_level+"\n";
 	    }
 	  }
 	  else
@@ -2307,7 +2332,7 @@ insert_into_wfrqst(fname,t[n].fmt,t[n].disp_order);
     query.set("definition,defParams","WGrML.gridDefinitions","code = "+local_args.grid_definition);
     if (query.submit(server_m) == 0 && query.num_rows() > 0) {
 	query.fetch_row(row);
-	local_args.grid_definition=convert_grid_definition(row[0]+"<!>"+row[1]);
+	local_args.grid_definition=gridutils::convert_grid_definition(row[0]+"<!>"+row[1]);
 	strutils::replace_all(local_args.grid_definition,"&deg;","-deg");
 	strutils::replace_all(local_args.grid_definition,"<small>","");
 	strutils::replace_all(local_args.grid_definition,"</small>","");
@@ -2336,16 +2361,20 @@ insert_into_wfrqst(fname,t[n].fmt,t[n].disp_order);
   if (get_timings) {
     clock_gettime(CLOCK_MONOTONIC,&db_times.start);
   }
-  metautils::connect_to_rdadb_server(server_d);
+  server_d.connect(metautils::directives.database_server,metautils::directives.rdadb_username,metautils::directives.rdadb_password,"dssdb");
   if (!server_d) {
     std::cerr << "Error: unable to connect to RDADB (3)" << std::endl;
     exit(1);
   }
-  if (server_d.insert("wfrqst","rindex,disp_order,data_format,file_format,wfile,type,status",rqst_index+",-1,NULL,NULL,'wget."+rqst_index+".csh','S','O'","update disp_order=-1,data_format=NULL") < 0) {
+  if (server_d.insert("wfrqst","rindex,disp_order,data_format,file_format,wfile,type,status",rqst_index+",-1,NULL,NULL,'unix-wget."+rqst_index+".csh','S','O'","update disp_order=-1,data_format=NULL") < 0) {
     std::cerr << "Error (insert): " << server_d.error() << std::endl;
     exit(1);
   }
-  if (server_d.insert("wfrqst","rindex,disp_order,data_format,file_format,wfile,type,status",rqst_index+",-1,NULL,NULL,'curl."+rqst_index+".csh','S','O'","update disp_order=-1,data_format=NULL") < 0) {
+  if (server_d.insert("wfrqst","rindex,disp_order,data_format,file_format,wfile,type,status",rqst_index+",-1,NULL,NULL,'unix-curl."+rqst_index+".csh','S','O'","update disp_order=-1,data_format=NULL") < 0) {
+    std::cerr << "Error (insert): " << server_d.error() << std::endl;
+    exit(1);
+  }
+  if (server_d.insert("wfrqst","rindex,disp_order,data_format,file_format,wfile,type,status",rqst_index+",-1,NULL,NULL,'dos-wget."+rqst_index+".bat','S','O'","update disp_order=-1,data_format=NULL") < 0) {
     std::cerr << "Error (insert): " << server_d.error() << std::endl;
     exit(1);
   }
@@ -2390,8 +2419,8 @@ insert_into_wfrqst(fname,t[n].fmt,t[n].disp_order);
   server_m.disconnect();
   if (get_timings) {
     clock_gettime(CLOCK_MONOTONIC,&times.end);
-    std::cout << "Date/time: " << current_date_time().to_string("%Y-%m-%d %H:%MM:%SS %Z") << std::endl;
-    std::cout << "Host: " << strutils::token(host_name(),".",0) << std::endl;
+    std::cout << "Date/time: " << dateutils::current_date_time().to_string("%Y-%m-%d %H:%MM:%SS %Z") << std::endl;
+    std::cout << "Host: " << strutils::token(unixutils::host_name(),".",0) << std::endl;
     std::cout << "# of threads: " << MAX_NUM_THREADS << std::endl;
     std::cout << "Total wallclock time: " << elapsed_time(times) << " seconds" << std::endl;
     std::cout << "Total database time: " << timing_data.db << " seconds" << std::endl;
