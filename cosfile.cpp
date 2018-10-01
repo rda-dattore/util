@@ -19,7 +19,7 @@ std::string mywarning="";
 
 void parse_args(int argc,char **argv)
 {
-  auto unix_args=unix_args_string(argc,argv,'!');
+  auto unix_args=unixutils::unix_args_string(argc,argv,'!');
   auto sp=strutils::split(unix_args,"!");
   for (size_t n=0; n < sp.size(); ++n) {
     if (sp[n] == "-v") {
@@ -48,8 +48,8 @@ int main(int argc,char **argv)
     exit(1);
   }
   parse_args(argc,argv);
-  const size_t BUF_LEN=100000;
-  std::unique_ptr<unsigned char []> buf(new unsigned char[BUF_LEN]);
+  int BUF_LEN=0;
+  std::unique_ptr<unsigned char []> buf;
   auto eof_recs=0;
   int eof_min=0x7fffffff,eof_max=0;
   size_t type[]={0,0};
@@ -66,18 +66,23 @@ int main(int argc,char **argv)
     auto eod_recs=0;
     auto eod_min=0x7fffffff;
     auto eod_max=0;
+    auto last_written=false;
     std::cout << "\nProcessing dataset: " << file << std::endl;
 // read to the end of the COS-blocked dataset
     int num_bytes;
-    while ( (num_bytes=istream.read(buf.get(),BUF_LEN)) != craystream::eod) {
+    while ( (num_bytes=istream.peek()) != craystream::eod) {
 	if (num_bytes == bfstream::error) {
 	  std::cerr << "\nRead error on record " << eof_recs+1 << " - may not be COS-blocked" << std::endl;
 	  exit(1);
 	}
 	auto last_len=-1;
 // read the current file
-	auto last_written=false;
 	do {
+	  if (num_bytes > BUF_LEN) {
+	    BUF_LEN=num_bytes;
+	    buf.reset(new unsigned char[BUF_LEN]);
+	  }
+	  istream.read(buf.get(),BUF_LEN);
 // handle a double EOF
 	  if (num_bytes == craystream::eof) {
 	    eof_min=0;
@@ -108,7 +113,8 @@ int main(int argc,char **argv)
 		++type[1];
 	    }
 	  }
-	} while ( (num_bytes=istream.read(buf.get(),BUF_LEN)) != craystream::eof);
+	} while ( (num_bytes=istream.peek()) != craystream::eof);
+	num_bytes=istream.read(buf.get(),BUF_LEN);
 	if (args.verbose && eof_recs > 0 && !last_written) {
 	  std::cout << "  " << std::setw(7) << eof_recs << " " << std::setw(7) << last_len << std::endl;
 	}
