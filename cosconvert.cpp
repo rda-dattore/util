@@ -2,15 +2,17 @@
 #include <bfstream.hpp>
 #include <grid.hpp>
 #include <strutils.hpp>
+#include <utils.hpp>
 #include <bits.hpp>
 #include <tempfile.hpp>
 #include <myerror.hpp>
 
 struct ArgList {
-  ArgList() : recln(0),conv(' '),cosfile(),non_cosfile() {}
+  ArgList() : recln(0),conv(' '),big_endian(),cosfile(),non_cosfile() {}
 
   int recln;
   char conv;
+  bool big_endian;
   std::string cosfile,non_cosfile;
 } args;
 
@@ -24,6 +26,19 @@ void parse_args(int argc,char **argv)
     args.conv=argv[next][1];
     if ((args.conv == 'B' || args.conv == 'b') && strutils::is_numeric(argv[next+1])) {
 	args.recln=atoi(argv[++next]);
+    }
+    else if (args.conv == 'f') {
+	++next;
+	if (std::string(argv[next]) == "big") {
+	  args.big_endian=true;
+	}
+	else if (std::string(argv[next]) == "little") {
+	  args.big_endian=false;
+	}
+	else {
+	  std::cerr << "Error: invalid endianness specified" << std::endl;
+	  exit(1);
+	}
     }
     if (args.conv == 'B' && args.recln == 0) {
 	args.recln=32768;
@@ -82,12 +97,12 @@ void cos_to_6_bit()
 	else {
 	  ofs.write(reinterpret_cast<char *>(buffer.get()),num6/8);
 	  num_remain=num6 % 8;
-	  get_bits(buffer.get(),buf_remain,(num6/8)*8,num_remain);
+	  bits::get(buffer.get(),buf_remain,(num6/8)*8,num_remain);
 	}
     }
     else {
-	set_bits(buffer2.get(),buf_remain,0,num_remain);
-	set_bits(buffer2.get(),buffer.get(),num_remain,8,0,num_bytes);
+	bits::set(buffer2.get(),buf_remain,0,num_remain);
+	bits::set(buffer2.get(),buffer.get(),num_remain,8,0,num_bytes);
 	num6+=num_remain;
 	if (num6 == num8) {
 	  ofs.write(reinterpret_cast<char *>(buffer2.get()),num_bytes);
@@ -101,8 +116,8 @@ exit(1);
     ++num_written;
   }
   if (num_remain > 0) {
-    set_bits(buffer2.get(),buf_remain,0,num_remain);
-    set_bits(buffer2.get(),0,num_remain,8-num_remain);
+    bits::set(buffer2.get(),buf_remain,0,num_remain);
+    bits::set(buffer2.get(),0,num_remain,8-num_remain);
     ofs.write(reinterpret_cast<char *>(buffer2.get()),1);
   }
   ofs.close();
@@ -256,6 +271,7 @@ void unix_to_cos()
 
 void cos_to_f77()
 {
+  auto sys_is_big_endian=unixutils::system_is_big_endian();
   icstream istream;
   if (!istream.open(args.cosfile.c_str())) {
     std::cerr << "Error opening " << args.cosfile << std::endl;
@@ -266,8 +282,8 @@ void cos_to_f77()
     tfile=new TempFile(".");
     args.non_cosfile=tfile->name();
   }
-  of77stream ostream;
-  if (!ostream.open(args.non_cosfile.c_str())) {
+  std::ofstream ostream(args.non_cosfile.c_str());
+  if (!ostream.is_open()) {
     std::cerr << "Error opening " << args.non_cosfile << std::endl;
     exit(1);
   }
@@ -275,12 +291,27 @@ void cos_to_f77()
   std::unique_ptr<unsigned char []> buffer(new unsigned char[BUF_LEN]);
   size_t num_written=0;
   int num_bytes;
+  char nbuf[4];
   while ( (num_bytes=istream.read(buffer.get(),BUF_LEN)) != bfstream::eof) {
     if (num_bytes == BUF_LEN) {
 	std::cerr << "Error: buffer not large enough" << std::endl;
 	exit(1);
     }
-    ostream.write(buffer.get(),num_bytes);
+    if (sys_is_big_endian == args.big_endian) {
+	ostream.write(reinterpret_cast<char *>(&num_bytes),4);
+    }
+    else {
+	bits::set(nbuf,num_bytes,0,32);
+	ostream.write(nbuf,4);
+    }
+    ostream.write(reinterpret_cast<char *>(buffer.get()),num_bytes);
+    if (sys_is_big_endian == args.big_endian) {
+	ostream.write(reinterpret_cast<char *>(&num_bytes),4);
+    }
+    else {
+	bits::set(nbuf,num_bytes,0,32);
+	ostream.write(nbuf,4);
+    }
     ++num_written;
   }
   ostream.close();
@@ -313,8 +344,8 @@ void f77_to_cos()
 	exit(1);
     }
 
-    set_bits(buffer.get(),num_bytes,0,32);
-    set_bits(buffer.get(),num_bytes,(num_bytes+4)*8,32);
+    bits::set(buffer.get(),num_bytes,0,32);
+    bits::set(buffer.get(),num_bytes,(num_bytes+4)*8,32);
     ostream.write(buffer.get(),num_bytes+8);
     ++num_written;
   }
@@ -373,7 +404,7 @@ void cos_to_rptout()
 	std::cerr << "Warning: buffer not large enough on record " << istream.number_read() << std::endl;
     }
     size_t block_len;
-    get_bits(buffer.get(),block_len,0,12);
+    bits::get(buffer.get(),block_len,0,12);
     ostream.write(buffer.get(),block_len);
   }
   ostream.close();
@@ -400,7 +431,7 @@ void rptout_to_cos()
   size_t num_read=0,num_written=0;
   while (fread(buffer.get(),1,8,fp) > 0) {
     size_t num_bytes;
-    get_bits(buffer.get(),num_bytes,32,32);
+    bits::get(buffer.get(),num_bytes,32,32);
     num_bytes*=8;
     fread(&buffer[8],1,num_bytes-8,fp);
     ++num_read;
@@ -438,7 +469,7 @@ void cos_to_vbs()
 	std::cerr << "Warning: buffer not large enough on record " << istream.number_read() << std::endl;
     }
     size_t block_len;
-    get_bits(buffer.get(),block_len,0,16);
+    bits::get(buffer.get(),block_len,0,16);
     fwrite(buffer.get(),1,block_len,fp);
     ++num_written;
   }
@@ -459,12 +490,13 @@ int main(int argc,char **argv)
     std::cerr << "a conversion flag is required (choose one):" << std::endl;
     std::cerr << "-6          convert COS-blocked binary to 6-bit stream" << std::endl;
     std::cerr << "-b <recln>  convert COS-blocked binary to plain binary, specifying an optional" << std::endl;
-    std::cerr << "            <recln> to force the record length" << std::endl;
+    std::cerr << "              <recln> to force the record length" << std::endl;
     std::cerr << "-B <recln>  convert plain binary to COS-blocked binary, specifying an optional" << std::endl;
-    std::cerr << "            <recln> for the binary record length (default is 32768)" << std::endl;
+    std::cerr << "              <recln> for the binary record length (default is 32768)" << std::endl;
     std::cerr << "-c          convert COS-blocked ASCII to UNIX ASCII" << std::endl;
     std::cerr << "-C          convert UNIX ASCII to COS-blocked ASCII" << std::endl;
-    std::cerr << "-f          convert COS-blocked binary to F77 binary" << std::endl;
+    std::cerr << "-f <endian> convert COS-blocked binary to F77 <endian>-endian binary, where" << std::endl;
+    std::cerr << "              <endian> is \"big\" or \"little\"" << std::endl;
     std::cerr << "-F          convert F77 binary to COS-blocked F77 binary" << std::endl;
     std::cerr << "-G          convert plain binary GRIB to COS-blocked GRIB" << std::endl;
     std::cerr << "-r          convert COS-blocked rptout to binary rptout" << std::endl;
