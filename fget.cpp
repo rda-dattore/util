@@ -195,7 +195,7 @@ void mod_time(int sock,std::string resource,struct utimbuf& times)
   if (std::regex_search(mdtm_message,std::regex("^213"))) {
     auto mdtm_parts=strutils::split(mdtm_message);
     if (mdtm_parts.size() > 1) {
-	times.actime=static_cast<time_t>(DateTime(std::stoll(mdtm_parts[1])).getSecondsSince(DateTime(1970,1,1,0,0)));
+	times.actime=static_cast<time_t>(DateTime(std::stoll(mdtm_parts[1])).seconds_since(DateTime(1970,1,1,0,0)));
 	times.modtime=times.actime;
     }
   }
@@ -270,11 +270,11 @@ void list(const ThreadStruct& ts,std::deque<std::tuple<std::string,off_t,long lo
 		auto facts=strutils::split(dline,";");
 		std::string filename=facts.back();
 		strutils::trim(filename);
-		if (filename[0] == '/') {
+		if (filename[0] == '/' && filename != args.resource) {
 		  filename=filename.substr(filename.rfind("/")+1);
 		}
 		off_t size=0;
-		long long modify;
+		long long modify=0;
 		for (const auto& fact : facts) {
 		  if (std::regex_search(fact,std::regex("^size=",std::regex::icase))) {
 		    size=std::stoi(fact.substr(5));
@@ -286,6 +286,9 @@ void list(const ThreadStruct& ts,std::deque<std::tuple<std::string,off_t,long lo
 		if (modify >= args.mtime && (!args.name_is_globbed || std::regex_search(filename,args.glob))) {
 		  if (args.resource.back() == '/') {
 		    filelist->emplace_back(std::make_tuple(args.resource+filename,size,modify));
+		  }
+		  else if (filename == args.resource) {
+		    filelist->emplace_back(std::make_tuple(args.resource,size,modify));
 		  }
 		  else {
 		    filelist->emplace_back(std::make_tuple(args.resource+"/"+filename,size,modify));
@@ -386,7 +389,7 @@ bool retrieve(const ThreadStruct& ts)
     if (args.use_remote_times) {
 	if (ts.modify > 0) {
 	  struct utimbuf times;
-	  times.actime=static_cast<time_t>(DateTime(ts.modify).getSecondsSince(DateTime(1970,1,1,0,0)));
+	  times.actime=static_cast<time_t>(DateTime(ts.modify).seconds_since(DateTime(1970,1,1,0,0)));
 	  times.modtime=times.actime;
 	  utime(ts.local_name.c_str(),&times);
 	}
@@ -533,7 +536,7 @@ int main(int argc,char **argv)
     std::cerr << "-V               verbose output" << std::endl;
     exit(1);
   }
-  auto arglist=strutils::split(getUnixArgsString(argc,argv,'!'),"!");
+  auto arglist=strutils::split(unixutils::unix_args_string(argc,argv,'!'),"!");
   for (size_t n=0; n < arglist.size()-1; n++) {
     if (arglist[n] == "-c") {
 	args.count_only=true;
