@@ -5,6 +5,9 @@
 ** https://icoads.noaa.gov/e-doc/lmr
 ** You will need to reference this document and modify this program to decode
 ** and print fields that are not already handled.
+**
+** compile with:
+** g++ -o readlmr6 readlmr6.cpp
 */
 
 #include <iostream>
