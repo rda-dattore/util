@@ -85,7 +85,7 @@ private:
   std::unique_ptr<unsigned char[]> buffer;
   int len;
 };
-std::string webhome,dsnum2,rqst_index,download_directory,compression;
+std::string webhome,dsnum2,rqst_index,download_directory,compression,tarflag;
 struct Times {
   struct timespec start,end;
 };
@@ -1244,7 +1244,7 @@ int main(int argc,char **argv)
 	clock_gettime(CLOCK_MONOTONIC,&db_times.start);
     }
     server_d.update("dsrqst","enotice='"+download_directory+"/.email_notice',fcount=-1","rindex = "+rqst_index);
-    query.set("rinfo,file_format,email,location","dsrqst","rindex = "+rqst_index);
+    query.set("rinfo,file_format,email,location,tarflag","dsrqst","rindex = "+rqst_index);
     if (query.submit(server_d) < 0) {
 	std::cerr << "Error: " << query.error() << std::endl;
 	std::cerr << "Query: " << query.show() << std::endl;
@@ -1261,6 +1261,7 @@ int main(int argc,char **argv)
     }
     duser=row[2];
     location=row[3];
+    tarflag=row[4];
   }
   std::string dsrqst_root,dataset_block;
   std::ifstream ifs("/glade/u/home/dattore/util/subconv.conf");
@@ -1496,6 +1497,12 @@ int main(int argc,char **argv)
     }
   }
   server_d.disconnect();
+  if (is_test && local_args.nlat < local_args.slat) {
+    std::cout << "Error: the north latitude must be north of the south latitude" << std::endl;
+    std::cout << "Your request:" << std::endl;
+    std::cout << rinfo << std::endl;
+    exit(1);
+  }
 // grids 62 and 64 were consolidated to 83 for ds093.0 and ds093.1
   if (std::regex_search(metautils::args.dsnum,std::regex("^093\\.[01]")) && (local_args.grid_definition == "62" || local_args.grid_definition == "64")) {
     local_args.grid_definition="83";
@@ -2239,18 +2246,20 @@ insert_into_wfrqst(fname,t[n].fmt,t[n].disp_order);
   if (local_args.ofmt == "csv") {
     combine_csv_files(insert_list,wget_list);
   }
-  ofs.open((download_directory+"/unix-wget."+rqst_index+".csh").c_str());
-  create_wget_script(wget_list,web_download_directory,"csh",&ofs);
-  ofs.close();
-  ofs.clear();
-  ofs.open((download_directory+"/unix-curl."+rqst_index+".csh").c_str());
-  create_curl_script(wget_list,web_download_directory,"csh",&ofs);
-  ofs.close();
-  ofs.clear();
-  ofs.open((download_directory+"/dos-wget."+rqst_index+".bat").c_str());
-  create_wget_script(wget_list,web_download_directory,"bat",&ofs);
-  ofs.close();
-  ofs.clear();
+  if (tarflag != "Y") {
+    ofs.open((download_directory+"/unix-wget."+rqst_index+".csh").c_str());
+    create_wget_script(wget_list,web_download_directory,"csh",&ofs);
+    ofs.close();
+    ofs.clear();
+    ofs.open((download_directory+"/unix-curl."+rqst_index+".csh").c_str());
+    create_curl_script(wget_list,web_download_directory,"csh",&ofs);
+    ofs.close();
+    ofs.clear();
+    ofs.open((download_directory+"/dos-wget."+rqst_index+".bat").c_str());
+    create_wget_script(wget_list,web_download_directory,"bat",&ofs);
+    ofs.close();
+    ofs.clear();
+  }
   ofs.open((download_directory+"/.email_notice").c_str());
   ofs << "From: <SENDER>" << std::endl;
   ofs << "To: <RECEIVER>" << std::endl;
@@ -2366,17 +2375,19 @@ insert_into_wfrqst(fname,t[n].fmt,t[n].disp_order);
     std::cerr << "Error: unable to connect to RDADB (3)" << std::endl;
     exit(1);
   }
-  if (server_d.insert("wfrqst","rindex,disp_order,data_format,file_format,wfile,type,status",rqst_index+",-1,NULL,NULL,'unix-wget."+rqst_index+".csh','S','O'","update disp_order=-1,data_format=NULL") < 0) {
-    std::cerr << "Error (insert): " << server_d.error() << std::endl;
-    exit(1);
-  }
-  if (server_d.insert("wfrqst","rindex,disp_order,data_format,file_format,wfile,type,status",rqst_index+",-1,NULL,NULL,'unix-curl."+rqst_index+".csh','S','O'","update disp_order=-1,data_format=NULL") < 0) {
-    std::cerr << "Error (insert): " << server_d.error() << std::endl;
-    exit(1);
-  }
-  if (server_d.insert("wfrqst","rindex,disp_order,data_format,file_format,wfile,type,status",rqst_index+",-1,NULL,NULL,'dos-wget."+rqst_index+".bat','S','O'","update disp_order=-1,data_format=NULL") < 0) {
-    std::cerr << "Error (insert): " << server_d.error() << std::endl;
-    exit(1);
+  if (tarflag != "Y") {
+    if (server_d.insert("wfrqst","rindex,disp_order,data_format,file_format,wfile,type,status",rqst_index+",-1,NULL,NULL,'unix-wget."+rqst_index+".csh','S','O'","update disp_order=-1,data_format=NULL") < 0) {
+	std::cerr << "Error (insert): " << server_d.error() << std::endl;
+	exit(1);
+    }
+    if (server_d.insert("wfrqst","rindex,disp_order,data_format,file_format,wfile,type,status",rqst_index+",-1,NULL,NULL,'unix-curl."+rqst_index+".csh','S','O'","update disp_order=-1,data_format=NULL") < 0) {
+	std::cerr << "Error (insert): " << server_d.error() << std::endl;
+	exit(1);
+    }
+    if (server_d.insert("wfrqst","rindex,disp_order,data_format,file_format,wfile,type,status",rqst_index+",-1,NULL,NULL,'dos-wget."+rqst_index+".bat','S','O'","update disp_order=-1,data_format=NULL") < 0) {
+	std::cerr << "Error (insert): " << server_d.error() << std::endl;
+	exit(1);
+    }
   }
   if (determined_temporal_subsetting) {
 	subflag+=2;
