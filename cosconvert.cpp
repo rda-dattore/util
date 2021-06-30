@@ -79,7 +79,7 @@ void cos_to_6_bit()
   std::unique_ptr<unsigned char []> buffer(new unsigned char[BUF_LEN]);
   std::unique_ptr<unsigned char []> buffer2(new unsigned char[BUF_LEN]);
   int num_remain=0;
-  unsigned char buf_remain;
+  unsigned char buf_remain = 0x0;
   int num_written=0;
   int num_bytes;
   while ( (num_bytes=istream.read(buffer.get(),BUF_LEN)) > 0) {
@@ -149,13 +149,16 @@ void cos_to_binary()
   for (int n=0; n < args.recln; ++n) {
     blank[n]=0;
   }
-  const int BUF_LEN=500000;
-  std::unique_ptr<unsigned char []> buffer(new unsigned char[BUF_LEN]);
+  int BUF_LEN = 0;
+  std::unique_ptr<unsigned char []> buffer;
   int num_bytes;
   size_t num_written=0;
-  while ( (num_bytes=istream.read(buffer.get(),BUF_LEN)) > 0) {
-    if (num_bytes == BUF_LEN)
-	std::cerr << "Warning: buffer not large enough on record " << istream.number_read() << std::endl;
+  while ( (num_bytes = istream.peek()) > 0) {
+    if (num_bytes > BUF_LEN) {
+      BUF_LEN = num_bytes;
+      buffer.reset(new unsigned char[BUF_LEN]);
+    }
+    num_bytes = istream.read(buffer.get(), BUF_LEN);
     if (args.recln == 0) {
 	ofs.write(reinterpret_cast<char *>(buffer.get()),num_bytes);
     }
