@@ -122,7 +122,10 @@ exit(1);
   }
   ofs.close();
   if (tfile != nullptr) {
-    system(("mv "+tfile->name()+" "+args.cosfile).c_str());
+    if (system(("mv "+tfile->name()+" "+args.cosfile).c_str()) != 0) {
+      std::cerr << "Error while removing COS-blocking" << std::endl;
+      exit(1);
+    }
   }
   std::cout << "\n  COS-blocked records read: " << istream.number_read() << std::endl;
   std::cout << "  Binary records written: " << num_written << std::endl;
@@ -175,7 +178,10 @@ void cos_to_binary()
     ++num_written;
   }
   if (tfile != nullptr) {
-    system(("mv "+tfile->name()+" "+args.cosfile).c_str());
+    if (system(("mv "+tfile->name()+" "+args.cosfile).c_str()) != 0) {
+      std::cerr << "Error while removing COS-blocking" << std::endl;
+      exit(1);
+    }
   }
   std::cout << "\n  COS-blocked records read: " << istream.number_read() << std::endl;
   std::cout << "  Binary records written: " << num_written << std::endl;
@@ -238,7 +244,10 @@ void cos_to_unix()
   }
   fclose(fp);
   if (tfile != nullptr) {
-    system(("mv "+tfile->name()+" "+args.cosfile).c_str());
+    if (system(("mv "+tfile->name()+" "+args.cosfile).c_str()) != 0) {
+      std::cerr << "Error while removing COS-blocking" << std::endl;
+      exit(1);
+    }
   }
   std::cout << "\n  COS-blocked records read: " << istream.number_read() << std::endl;
   std::cout << "  Unix records written: " << num_written << std::endl;
@@ -319,7 +328,10 @@ void cos_to_f77()
   }
   ostream.close();
   if (tfile != nullptr) {
-    system(("mv "+tfile->name()+" "+args.cosfile).c_str());
+    if (system(("mv "+tfile->name()+" "+args.cosfile).c_str()) != 0) {
+      std::cerr << "Error while removing COS-blocking" << std::endl;
+      exit(1);
+    }
   }
   std::cout << "\n  COS-blocked records read: " << istream.number_read() << std::endl;
   std::cout << "  F77 records written: " << num_written << std::endl;
@@ -412,7 +424,10 @@ void cos_to_rptout()
   }
   ostream.close();
   if (tfile != nullptr) {
-    system(("mv "+tfile->name()+" "+args.cosfile).c_str());
+    if (system(("mv "+tfile->name()+" "+args.cosfile).c_str()) != 0) {
+      std::cerr << "Error while removing COS-blocking" << std::endl;
+      exit(1);
+    }
   }
   std::cout << "\n  COS-blocked records read: " << istream.number_read() << std::endl;
   std::cout << "  Binary Rptout records written: " << ostream.number_written() << std::endl;
@@ -436,7 +451,10 @@ void rptout_to_cos()
     size_t num_bytes;
     bits::get(buffer.get(),num_bytes,32,32);
     num_bytes*=8;
-    fread(&buffer[8],1,num_bytes-8,fp);
+    if (fread(&buffer[8],1,num_bytes-8,fp) != num_bytes - 8) {
+      std::cerr << "Error while reading rptout file" << std::endl;
+      exit(1);
+    }
     ++num_read;
     ostream.write(buffer.get(),num_bytes);
     ++num_written;
@@ -478,7 +496,10 @@ void cos_to_vbs()
   }
   fclose(fp);
   if (tfile != nullptr) {
-    system(("mv "+tfile->name()+" "+args.cosfile).c_str());
+    if (system(("mv "+tfile->name()+" "+args.cosfile).c_str()) != 0) {
+      std::cerr << "Error while removing COS-blocking" << std::endl;
+      exit(1);
+    }
   }
   std::cout << "\n  COS-blocked records read: " << istream.number_read() << std::endl;
   std::cout << "  Binary VBS records written: " << num_written << std::endl;
